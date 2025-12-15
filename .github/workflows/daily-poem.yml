@@ -2,7 +2,7 @@ name: Daily Poem to Notion
 
 on:
   schedule:
-    # 北京时间 06:00（UTC+8），对应 UTC 前一日 22:00
+    # 北京时间 06:00（UTC+8）→ UTC 22:00 前一天
     - cron: "0 22 * * *"
   workflow_dispatch:
 
@@ -10,21 +10,23 @@ jobs:
   run:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - name: Run script
+
+      - name: Run daily poem script
         env:
-          NOTION_TOKEN: $ secrets.NOTION_TOKEN 
-          NOTION_DATABASE_ID: $ secrets.NOTION_DATABASE_ID 
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
         run: |
           cat > index.mjs << 'EOF'
-          import fetch from "node-fetch";
+          // 使用 Node.js 20 原生 fetch，无需安装 node-fetch
 
           const NOTION_TOKEN = process.env.NOTION_TOKEN;
           const DB = process.env.NOTION_DATABASE_ID;
 
-          // 计算“今天”（按北京时间）
           function todayInShanghaiISO() {
             const now = new Date();
             const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
@@ -32,8 +34,7 @@ jobs:
             return sh.toISOString().slice(0,10);
           }
 
-          // 简单重试封装
-          async function withRetry(fn, times = 3, delayMs = 800) {
+          async function withRetry(fn, times = 3, delayMs = 1000) {
             let lastErr;
             for (let i = 0; i < times; i++) {
               try { return await fn(); } catch (e) {
@@ -44,7 +45,6 @@ jobs:
             throw lastErr;
           }
 
-          // 获取整首诗（优先 content/paragraphs）
           async function fetchPoem() {
             const url = "https://v2.jinrishici.com/one.json";
             const r = await fetch(url, {
@@ -58,22 +58,18 @@ jobs:
             const author = origin?.author || "";
             const dynasty = origin?.dynasty || "";
             let lines = [];
-            if (Array.isArray(origin?.content) && origin.content.length) {
-              lines = origin.content;
-            } else if (Array.isArray(origin?.paragraphs) && origin.paragraphs.length) {
-              lines = origin.paragraphs;
-            } else if (typeof d?.content === "string" && d.content.trim()) {
-              lines = [d.content.trim()];
-            }
+            if (Array.isArray(origin?.content)) lines = origin.content;
+            else if (Array.isArray(origin?.paragraphs)) lines = origin.paragraphs;
+            else if (typeof d?.content === "string") lines = [d.content.trim()];
             const fullText = lines.join("\n");
             return { title, author, dynasty, fullText };
           }
 
           async function notionQueryByDate(dateISO) {
-            const r = await fetch(\`https://api.notion.com/v1/databases/\${DB}/query\`, {
+            const r = await fetch(`https://api.notion.com/v1/databases/${DB}/query`, {
               method: "POST",
               headers: {
-                "Authorization": \`Bearer \${NOTION_TOKEN}\`,
+                "Authorization": `Bearer ${NOTION_TOKEN}`,
                 "Notion-Version": "2022-06-28",
                 "Content-Type": "application/json"
               },
@@ -89,17 +85,17 @@ jobs:
             const r = await fetch("https://api.notion.com/v1/pages", {
               method: "POST",
               headers: {
-                "Authorization": \`Bearer \${NOTION_TOKEN}\`,
+                "Authorization": `Bearer ${NOTION_TOKEN}`,
                 "Notion-Version": "2022-06-28",
                 "Content-Type": "application/json"
               },
               body: JSON.stringify({
                 parent: { database_id: DB },
                 properties: {
-                  "诗题": { title: [{ type: "text", text: { content: title } }] },
-                  "作者": { rich_text: [{ type: "text", text: { content: author } }] },
-                  "朝代": { rich_text: [{ type: "text", text: { content: dynasty } }] },
-                  "全文": { rich_text: [{ type: "text", text: { content: fullText } }] },
+                  "诗题": { title: [{ text: { content: title } }] },
+                  "作者": { rich_text: [{ text: { content: author } }] },
+                  "朝代": { rich_text: [{ text: { content: dynasty } }] },
+                  "全文": { rich_text: [{ text: { content: fullText } }] },
                   "日期": { date: { start: dateISO } }
                 }
               })
@@ -110,24 +106,23 @@ jobs:
 
           async function main() {
             const dateISO = todayInShanghaiISO();
-
-            // 去重：当天已有记录则跳过
             const q = await notionQueryByDate(dateISO);
             if (Array.isArray(q?.results) && q.results.length) {
               console.log("Skip: already exists for", dateISO);
               return;
             }
 
-            // 获取并写入
-            const poem = await withRetry(fetchPoem, 3, 1000);
-            if (!poem.fullText) {
-              throw new Error("Empty fullText from API");
-            }
+            const poem = await withRetry(fetchPoem);
+            if (!poem.fullText?.trim()) throw new Error("Empty poem");
 
             const res = await notionCreatePage({ ...poem, dateISO });
-            console.log("Created:", res?.id || res);
+            console.log("✅ Created:", res?.id);
           }
 
-          main().catch(e => { console.error(e); process.exit(1); });
+          main().catch(e => {
+            console.error("❌ Error:", e.message || e);
+            process.exit(1);
+          });
           EOF
+
           node index.mjs
