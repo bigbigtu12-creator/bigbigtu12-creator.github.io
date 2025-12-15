@@ -2,73 +2,212 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>每日一诗（整首）</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>每日一诗 · 美化版（整首）</title>
+  <meta name="color-scheme" content="light dark">
   <style>
     :root { color-scheme: light dark; }
-    html,body{margin:0;padding:0;background:transparent}
-    .card{
-      font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Inter,system-ui,"PingFang SC","Helvetica Neue",Arial;
-      padding:16px 18px; line-height:1.8; color:#111; max-width:680px
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: transparent;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
     }
-    @media (prefers-color-scheme: dark){
-      .card{ color:#eee }
+
+    /* 外层渐变描边（可选） */
+    .ring {
+      padding: 1px;
+      border-radius: 16px;
+      background: linear-gradient(120deg, #eceff3, #f7f7f7);
     }
-    .title{ font-size:18px; font-weight:600; margin-bottom:4px }
-    .meta{ color:#666; font-size:14px; margin-bottom:10px }
-    @media (prefers-color-scheme: dark){
-      .meta{ color:#aaa }
+    @media (prefers-color-scheme: dark) {
+      .ring {
+        background: linear-gradient(120deg, #2d3238, #1f2937);
+      }
     }
-    .poem{ white-space:pre-wrap; font-size:17px }
-    .footer{ color:#888; font-size:12px; margin-top:14px }
+
+    .wrap {
+      padding: 8px;
+    }
+    .card {
+      position: relative;
+      box-sizing: border-box;
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 18px 20px;
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.78);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(0, 0, 0, 0.06);
+      box-shadow: 0 6px 24px rgba(0, 0, 0, 0.06);
+      color: #121212;
+      transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+    }
+    .card:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+    }
+    @media (prefers-color-scheme: dark) {
+      .card {
+        background: rgba(28, 28, 28, 0.7);
+        border-color: rgba(255, 255, 255, 0.08);
+        color: #eaeaea;
+        box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+      }
+    }
+
+    /* 左侧竖线装饰 */
+    .card::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 14px;
+      bottom: 14px;
+      width: 2px;
+      background: linear-gradient(180deg, #f59e0b, #ef4444);
+      border-radius: 2px;
+      opacity: 0.6;
+    }
+
+    .title {
+      font: 600 20px/1.35 ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, "PingFang SC";
+      margin: 0 0 6px 0;
+      letter-spacing: 0.2px;
+    }
+    .meta {
+      color: #6b7280;
+      font-size: 14px;
+      margin: 0 0 12px 0;
+    }
+    @media (prefers-color-scheme: dark) {
+      .meta {
+        color: #9aa2ad;
+      }
+    }
+
+    /* 诗文用衬线字体，整首分段展示 */
+    .poem {
+      font-family: "Songti SC", "STSong", "SimSun", serif;
+      font-size: 18px;
+      line-height: 1.95;
+      word-break: break-word;
+    }
+    .poem p {
+      margin: 0;
+      text-indent: 2em;
+    }
+    .poem p + p {
+      margin-top: 0.2em;
+    }
+
+    .hr {
+      height: 1px;
+      background: currentColor;
+      opacity: 0.08;
+      margin: 12px 0;
+    }
+    .foot {
+      color: #9aa2ad;
+      font-size: 12px;
+      margin-top: 10px;
+    }
+
+    /* 错误提示 */
+    .error {
+      color: #b91c1c;
+      font-size: 14px;
+      margin-top: 12px;
+    }
+    @media (prefers-color-scheme: dark) {
+      .error {
+        color: #fca5a5;
+      }
+    }
   </style>
 </head>
 <body>
-  <div class="card">
-    <div id="title" class="title">加载中…</div>
-    <div id="meta" class="meta"></div>
-    <div id="poem" class="poem"></div>
-    <div class="footer">数据来源：今日诗词</div>
+  <div class="wrap">
+    <div class="ring">
+      <div class="card" id="card">
+        <div id="title" class="title">加载中…</div>
+        <div id="meta" class="meta"></div>
+        <div id="poem" class="poem"></div>
+        <div id="err" class="error" style="display: none;"></div>
+        <div class="hr"></div>
+        <div class="foot">数据来源：今日诗词 · 每次载入自动更新</div>
+      </div>
+    </div>
   </div>
-  <script>
-    async function loadPoem(){
-      try{
-        // 今日诗词跨域友好，浏览器直接请求
-        const r = await fetch('https://v2.jinrishici.com/one.json', { credentials: 'include' });
-        if(!r.ok) throw new Error('网络错误：' + r.status);
-        const j = await r.json();
-        const d = j?.data || {};
-        const origin = d?.origin || {};
 
-        // 标题、作者、朝代
-        const title = origin?.title || '';
+  <script>
+    async function loadPoem() {
+      try {
+        // ✅ 使用 /one.json 获取整首诗（关键修复！）
+        const response = await fetch('https://v2.jinrishici.com/one.json', {
+          headers: {
+            'User-Agent': 'DailyPoemPage/1.0'
+          }
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.json();
+        const poemData = data?.data || {};
+        const origin = poemData?.origin || {};
+
+        const title = origin?.title || '每日一诗';
         const author = origin?.author || '';
         const dynasty = origin?.dynasty || '';
 
-        // 整首诗优先：origin.content 是整首的分行数组（有些是 paragraphs）
+        // 提取诗句内容
         let lines = [];
-        if (Array.isArray(origin?.content) && origin.content.length){
+        if (Array.isArray(origin?.content) && origin.content.length > 0) {
           lines = origin.content;
-        } else if (Array.isArray(origin?.paragraphs) && origin.paragraphs.length){
+        } else if (Array.isArray(origin?.paragraphs) && origin.paragraphs.length > 0) {
           lines = origin.paragraphs;
-        } else if (typeof d?.content === 'string' && d.content.trim()){
-          // 回退：只有一句时也展示
-          lines = [d.content.trim()];
+        } else if (typeof poemData?.content === 'string' && poemData.content.trim()) {
+          lines = [poemData.content.trim()];
         }
 
-        // 渲染
-        document.getElementById('title').textContent = title || '每日一诗';
-        const metaParts = [dynasty, author].filter(Boolean);
-        document.getElementById('meta').textContent = metaParts.join(' · ');
-        document.getElementById('poem').textContent = lines.join('\n');
+        if (lines.length === 0) {
+          lines = ['暂无诗词内容'];
+        }
 
-      }catch(e){
+        // 渲染到页面
+        document.getElementById('title').textContent = title;
+        const metaParts = [dynasty, author].filter(Boolean);
+        document.getElementById('meta').textContent = metaParts.join(' · ') || '——';
+
+        const poemContainer = document.getElementById('poem');
+        poemContainer.innerHTML = lines.map(line => `<p>${escapeHtml(line)}</p>`).join('');
+
+        // 隐藏错误信息
+        document.getElementById('err').style.display = 'none';
+
+      } catch (error) {
+        console.error('加载诗词失败:', error);
         document.getElementById('title').textContent = '加载失败';
         document.getElementById('meta').textContent = '';
-        document.getElementById('poem').textContent = '请稍后重试。';
-        console.error(e);
+        document.getElementById('poem').innerHTML = '';
+        const errEl = document.getElementById('err');
+        errEl.textContent = '无法获取今日诗词，请稍后重试';
+        errEl.style.display = 'block';
       }
     }
+
+    function escapeHtml(str) {
+      if (typeof str !== 'string') return String(str);
+      return str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    // 启动加载
     loadPoem();
   </script>
 </body>
